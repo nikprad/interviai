@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-const API = "http://localhost:8000";
+const API = "https://backend-22b-8000.ny1.zerops.app";
 
 function App() {
   const [candidates, setCandidates] = useState([]);
