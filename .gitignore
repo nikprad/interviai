@@ -29,3 +29,9 @@ Thumbs.db
 # Logs
 *.log
 node_modules/
+.venv/
+__pycache__/
+*.pyc
+.env
+node_modules/
+frontend/dist/

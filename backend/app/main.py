@@ -3,19 +3,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .data import CANDIDATES, candidate_by_id
-from .interview import start_session, sessions, submit_answer, feedback
+from .interview import (
+    start_session,
+    sessions,
+    submit_answer,
+    feedback,
+)
 
 
-app = FastAPI(title="InterviAI API", version="0.1.0")
+app = FastAPI(
+    title="InterviAI API",
+    version="0.2.0",
+)
 
+
+# --------------------------------------------------
+# CORS
+# --------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+# --------------------------------------------------
+# Request Models
+# --------------------------------------------------
 
 class StartRequest(BaseModel):
     candidate_id: str
@@ -26,32 +45,58 @@ class AnswerRequest(BaseModel):
     answer: str
 
 
+# --------------------------------------------------
+# Health
+# --------------------------------------------------
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "service": "InterviAI",
+    }
 
+
+# --------------------------------------------------
+# Candidates
+# --------------------------------------------------
 
 @app.get("/api/candidates")
 def candidates():
     return CANDIDATES
 
 
+# --------------------------------------------------
+# Start Interview
+# --------------------------------------------------
+
 @app.post("/api/interview/start")
 def start(req: StartRequest):
+
     candidate = candidate_by_id(req.candidate_id)
 
     if not candidate:
-        raise HTTPException(404, "Candidate not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Candidate not found",
+        )
 
     try:
         session = start_session(candidate)
+
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 
     question = session["seeds"][0][1]
 
     session["history"].append(
-        {"role": "assistant", "content": question}
+        {
+            "role": "assistant",
+            "content": question,
+        }
     )
 
     return {
@@ -63,12 +108,20 @@ def start(req: StartRequest):
     }
 
 
+# --------------------------------------------------
+# Submit Interview Answer
+# --------------------------------------------------
+
 @app.post("/api/interview/answer")
 def answer(req: AnswerRequest):
+
     session = sessions.get(req.session_id)
 
     if not session:
-        raise HTTPException(404, "Session not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found",
+        )
 
     if session["finished"]:
         return {
@@ -76,64 +129,47 @@ def answer(req: AnswerRequest):
             "feedback": feedback(session),
         }
 
-    question = submit_answer(session, req.answer)
+    # Get the current interviewer question
+    assistant_messages = [
+        item
+        for item in session["history"]
+        if item.get("role") == "assistant"
+    ]
 
-    if session["finished"]:
+    if not assistant_messages:
+        raise HTTPException(
+            status_code=400,
+            detail="No active interview question found.",
+        )
+
+    current_question = assistant_messages[-1]["content"]
+
+    # Send candidate answer to the AI interviewer
+    result = submit_answer(
+        session=session,
+        question=current_question,
+        text=req.answer,
+    )
+
+    # Interview completed
+    if result["finished"]:
+
         return {
             "finished": True,
+            "evaluation": result["evaluation"],
             "feedback": feedback(session),
-            "covered_days": sorted(set(session["covered"])),
+            "covered_days": sorted(
+                set(session["covered"])
+            ),
         }
 
+    # Continue interview
     return {
         "finished": False,
+        "evaluation": result["evaluation"],
         "question_no": session["n"],
-        "question": question,
-        "covered_days": sorted(set(session["covered"])),
+        "question": result["question"],
+        "covered_days": sorted(
+            set(session["covered"])
+        ),
     }
-
-
- # @app.get("/curriculum")
-# def curriculum():
-     #try:
-       # data = get_curriculum()
-
-       # return {
-         #   "success": True,
-           # "curriculum": data,
-       # }
-
-    # except FileNotFoundError as error:
-        # raise HTTPException(
-          #  status_code=404,
-           # detail=str(error),
-       # )
-
-   # except ValueError as error:
-   #     raise HTTPException(
-   #         status_code=400,
-   #         detail=str(error),
-      #  )
-
-
-# @app.get("/candidate/{candidate_id}")
-# def candidate(candidate_id: str):
-   # try:
-      #  data = get_candidate(candidate_id)
-
-       # return {
-       #     "success": True,
-      #      "candidate": data,
-      #  }
-
-  #  except FileNotFoundError as error:
-       # raise HTTPException(
-       #     status_code=404,
-      #      detail=str(error),
-     #   )
-
-   # except ValueError as error:
-       # raise HTTPException(
-        #    status_code=404,
-      #      detail=str(error),
-     #   ) 
